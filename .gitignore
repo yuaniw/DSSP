@@ -61,3 +61,22 @@ envs/curobo/*
 .env
 .env.*
 !.env.example
+
+# Credentials and generated experiment metadata
+.netrc
+.pypirc
+.aws/
+.ssh/
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+service-account*.json
+**/.hydra/
+**/train_metrics.json
+**/train_log.jsonl
+**/_config.json
+**/_episodes.jsonl
+**/_metrics.json
+**/_result.txt

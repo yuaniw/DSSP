@@ -24,7 +24,7 @@ PyTorch3D and the CUDA extensions must match the installed PyTorch/CUDA stack. A
 python -m pip install -e policy/DSSP/src
 ```
 
-The launchers use the active `python`. Set `PYTHON` to an interpreter path when required. Install FFmpeg for video recording.
+The launchers use the active `python`. Set `PYTHON` to an interpreter path when required. Video recording uses the FFmpeg binary bundled with `imageio-ffmpeg`; set `IMAGEIO_FFMPEG_EXE` to use another binary with `libx264` support.
 
 ## Data layout
 
@@ -152,7 +152,7 @@ DSSP uses one full-history context token and three recent observation tokens, an
 
 ## Tests
 
-Run the preprocessing and evaluation-argument tests from the repository root:
+Run the release tests from the repository root:
 
 ```bash
 python -m unittest discover -s tests -v

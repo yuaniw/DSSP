@@ -585,7 +585,9 @@ class Base_Task(gym.Env):
     def _del_eval_video_ffmpeg(self):
         if self.eval_video_ffmpeg:
             self.eval_video_ffmpeg.stdin.close()
-            self.eval_video_ffmpeg.wait()
+            returncode = self.eval_video_ffmpeg.wait()
+            if returncode != 0:
+                raise subprocess.CalledProcessError(returncode, self.eval_video_ffmpeg.args)
             del self.eval_video_ffmpeg
 
     def delay(self, delay_time, save_freq=None):

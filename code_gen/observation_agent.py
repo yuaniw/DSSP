@@ -3,7 +3,7 @@ import os
 import glob
 from openai import OpenAI
 
-from gpt_agent import kimi_api, openai_api, deep_seek_api, generate
+from gpt_agent import generate
 
 
 def observe_task_execution(episode_id, task_name, task_info, problematic_code=None, save_dir="./camera_images", camera_name=None, generate_dir_name=None):
@@ -23,7 +23,7 @@ def observe_task_execution(episode_id, task_name, task_info, problematic_code=No
     str: Textual description of the observation result.
     """
     client = OpenAI(
-        api_key=kimi_api,
+        api_key=os.environ["KIMI_API_KEY"],
         base_url="https://api.moonshot.cn/v1",
     )
     

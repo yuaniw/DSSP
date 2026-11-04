@@ -6,13 +6,10 @@ from azure.ai.inference import ChatCompletionsClient
 from azure.ai.inference.models import SystemMessage, UserMessage
 from azure.core.credentials import AzureKeyCredential
 
-endpoint = "https://d-robotics.openai.azure.com/openai/deployments/gpt-4o"
-model_name = "gpt-4o"
+endpoint = os.environ["AZURE_INFERENCE_ENDPOINT"]
+model_name = os.environ["AZURE_INFERENCE_MODEL"]
 
-# Get API key from environment variable
-api_key = os.environ.get("AZURE_API_KEY")
-if not api_key:
-    raise ValueError("AZURE_API_KEY environment variable is required but not set")
+api_key = os.environ["AZURE_API_KEY"]
 
 client = ChatCompletionsClient(
     endpoint=endpoint,

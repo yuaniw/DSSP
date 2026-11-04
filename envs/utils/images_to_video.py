@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import os
 import subprocess
+import imageio_ffmpeg
 import pickle
 import pdb
 
@@ -17,7 +18,7 @@ def images_to_video(imgs: np.ndarray, out_path: str, fps: float = 30.0, is_rgb: 
         pixel_format = "rgba"
     ffmpeg = subprocess.Popen(
         [
-            "ffmpeg",
+            imageio_ffmpeg.get_ffmpeg_exe(),
             "-y",
             "-loglevel",
             "error",

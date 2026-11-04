@@ -1,6 +1,7 @@
 import sys
 import os
 import subprocess
+import imageio_ffmpeg
 
 sys.path.append("./")
 sys.path.append(f"./policy")
@@ -331,7 +332,7 @@ def eval_policy(task_name,
         if TASK_ENV.eval_video_path is not None:
             ffmpeg = subprocess.Popen(
                 [
-                    "ffmpeg",
+                    imageio_ffmpeg.get_ffmpeg_exe(),
                     "-y",
                     "-loglevel",
                     "error",

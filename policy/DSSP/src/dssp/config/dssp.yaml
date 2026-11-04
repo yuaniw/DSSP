@@ -168,7 +168,7 @@ training:
 logging:
   group: ${exp_name}
   id: null
-  mode: online
+  mode: disabled
   name: ${exp_name}
   project: DSSP
   resume: False

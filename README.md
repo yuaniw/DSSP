@@ -69,7 +69,7 @@ cd DSSP
 
 ### 1. Environment and simulator assets
 
-Follow the official [RoboTwin installation and asset setup](https://robotwin-platform.github.io/doc/usage/robotwin-install.html) for the simulator, rendering dependencies, robot embodiments, and objects. Use this checkout for DSSP training and evaluation.
+Follow the self-contained [installation guide](docs/INSTALLATION.md) in this repository for the simulator, rendering dependencies, motion planner, required patches, and assets. It covers the RoboTwin revision used by DSSP; setup can be completed entirely from this checkout.
 
 The DSSP environment uses Python 3.10, PyTorch 2.4.1 with CUDA 12.1, Mamba-SSM 2.2.2, and causal-conv1d 1.4.0. Follow the [installation guide](docs/INSTALLATION.md) to install the dependencies in [policy/DSSP/environment.yaml](policy/DSSP/environment.yaml), including the CUDA extensions.
 

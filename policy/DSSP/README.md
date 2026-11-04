@@ -4,7 +4,7 @@ See the [main README](../../README.md) for the paper, method overview, figures, 
 
 ## Environment
 
-Set up the simulator and assets using the official [RoboTwin installation guide](https://robotwin-platform.github.io/doc/usage/robotwin-install.html), then install the DSSP dependencies following [INSTALLATION.md](../../docs/INSTALLATION.md).
+Follow the self-contained [installation guide](../../docs/INSTALLATION.md) for the pinned RoboTwin simulator, patches, assets, CUDA extensions, and DSSP environment. All setup commands run from this checkout.
 
 The main dependency versions are:
 

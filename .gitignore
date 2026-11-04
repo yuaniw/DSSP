@@ -8,7 +8,7 @@ envs/curobo
 *.zip
 viewer_show.*
 eval_video/
-task_config/
+# Task configurations are versioned for reproducibility.
 **/.DS_Store
 
 # eval result
@@ -28,3 +28,33 @@ envs/curobo/*
 
 /*.json*
 /*.txt
+
+# Local experiments and machine-specific release bookkeeping
+/reproduction/
+/transfer_validation/
+/policy/DSSP/DSSP_RENAME.json
+/policy/DSSP/TRANSFER_MANIFEST.json
+/policy/DSSP/TRANSFER_VALIDATION.json
+/docs/RELEASE_CHECKLIST.md
+/docs/PUBLISHING_LOCAL.md
+
+# Generated training/evaluation artifacts
+**/wandb/
+**/outputs/
+*.ckpt
+*.pt
+*.pth
+*.safetensors
+*.zarr/
+*.hdf5
+*.h5
+/slurm-*.out
+/slurm-*.err
+
+# Python build/cache files and local credentials
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.env
+.env.*
+!.env.example

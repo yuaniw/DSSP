@@ -1,0 +1,60 @@
+name: RoboTwin-DSSP
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - ffmpeg
+  - setuptools
+  - wheel
+  - numpy=1.23.5
+  - scipy
+  - pandas
+  - matplotlib
+  - scikit-learn
+  - h5py=3.16.0
+  - zarr=2.12.0
+  - numcodecs=0.13.1
+  - pyyaml=6.0.3
+  - opencv
+  - open3d=0.18.0
+  - gymnasium=0.29.1
+  - pip:
+      - torch==2.4.1+cu121
+      - torchvision==0.19.1
+      - hydra-core==1.2.0
+      - omegaconf==2.3.0
+      - diffusers==0.18.2
+      - huggingface-hub==0.19.4
+      - transformers==4.37.2
+      - einops==0.4.1
+      - wandb==0.25.1
+      - tqdm==4.67.3
+      - termcolor==3.3.0
+      - dill==0.3.5.1
+      - imageio==2.34.2
+      - imageio-ffmpeg==0.6.0
+      - shapely==2.1.2
+      - transforms3d==0.4.2
+      - trimesh==4.4.3
+      - pyquaternion==0.9.9
+      - pyglet==1.5.31
+      - sapien==3.0.0b1
+      - pytorch3d==0.7.9+pt2.4.1cu121
+      - causal-conv1d==1.4.0
+      - mamba-ssm==2.2.2
+
+# Usage:
+#   conda env create -f policy/DSSP/environment.yaml
+#   conda activate RoboTwin-DSSP
+#   pip install -e policy/DSSP/src
+#
+# Notes:
+# - This file is a focused environment for the DSSP training/evaluation pipeline.
+# - If you want to reproduce the full repository environment exactly as on the current machine,
+#   use the repo-root `environment.yml` instead.
+# - `pytorch3d==0.7.9+pt2.4.1cu121` typically requires a matching wheel source and CUDA/PyTorch setup.
+# - `mamba-ssm` and `causal-conv1d` may need a compatible CUDA toolchain on the target machine.
+
+# Core pins match the successful transfer test; fresh installation is untested.

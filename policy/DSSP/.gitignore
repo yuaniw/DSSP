@@ -1,0 +1,5 @@
+src/data/
+third_party/
+checkpoints/
+data/
+__pycache__/

@@ -1,0 +1,204 @@
+defaults:
+  - task: demo_task
+
+name: dssp
+
+task_name: null
+shape_meta: ${task.shape_meta}
+exp_name: "debug"
+
+training_mode: trajectory
+
+horizon: 8
+n_obs_steps: 3
+n_action_steps: 6
+recent_obs_steps: 3
+n_latency_steps: 0
+dataset_obs_steps: ${n_obs_steps}
+keypoint_visible_rate: 1.0
+obs_as_global_cond: True
+
+trajectory:
+  position_batch_size: 256
+  anchor_sampling: uniform
+  shuffle_episodes: True
+
+history:
+  train_max_steps: null
+  eval_max_steps: null
+
+task:
+  dataset:
+    _target_: dssp.dataset.robot_trajectory_dataset.RobotTrajectoryDataset
+    zarr_path: ../../../data/${task.name}.zarr
+    horizon: ${horizon}
+    pad_before: ${eval:'${n_obs_steps}-1'}
+    pad_after: ${eval:'${n_action_steps}-1'}
+    seed: 0
+    val_ratio: 0.02
+    max_train_episodes: null
+
+policy:
+  _target_: dssp.policy.dssp.DSSP
+  use_point_crop: true
+  condition_type: film
+  mamba_layers: 8
+  d_model: 512
+  d_state: 64
+  d_conv: 4
+  expand: 2
+  d_intermediate: 0
+  mamba_version: Mamba1
+  use_rmsnorm: true
+  residual_in_fp32: false
+  fused_add_norm: false
+
+  use_mamba_obs_encoder: true
+  obs_encoder_mamba_layers: 2
+  obs_encoder_d_model: ${policy.d_model}
+  obs_encoder_d_state: ${policy.d_state}
+  obs_encoder_d_conv: ${policy.d_conv}
+  obs_encoder_expand: ${policy.expand}
+  obs_encoder_d_intermediate: 0
+
+  trajectory_position_batch_size: ${trajectory.position_batch_size}
+  trajectory_anchor_sampling: ${trajectory.anchor_sampling}
+  train_max_history_steps: ${history.train_max_steps}
+  eval_max_history_steps: ${history.eval_max_steps}
+  eval_use_history_latents: true
+
+  recent_obs_steps: ${recent_obs_steps}
+  dynamics_predict_mode: context_to_raw
+  use_dynamics_aux_loss: true
+  dynamics_loss_weight: 0.05
+  dynamics_loss_type: cosine
+  dynamics_hidden_dim: 256
+  use_progress_aux_loss: false
+  progress_loss_weight: 1.00
+  progress_hidden_dim: 256
+
+  diffusion_step_embed_dim: 128
+  down_dims:
+  - 512
+  - 1024
+  - 2048
+  crop_shape:
+  - 80
+  - 80
+  encoder_output_dim: 128
+  horizon: ${horizon}
+  kernel_size: 5
+  n_action_steps: ${n_action_steps}
+  n_groups: 8
+  n_obs_steps: ${n_obs_steps}
+
+  noise_scheduler:
+    _target_: diffusers.schedulers.scheduling_ddim.DDIMScheduler
+    num_train_timesteps: 100
+    beta_start: 0.0001
+    beta_end: 0.02
+    beta_schedule: squaredcos_cap_v2
+    clip_sample: True
+    set_alpha_to_one: True
+    steps_offset: 0
+    prediction_type: sample
+
+  num_inference_steps: 10
+  obs_as_global_cond: true
+  shape_meta: ${shape_meta}
+
+  use_pc_color: false
+  pointnet_type: "pointnet"
+
+  pointcloud_encoder_cfg:
+    in_channels: 3
+    out_channels: ${policy.encoder_output_dim}
+    use_layernorm: true
+    final_norm: layernorm
+    normal_channel: false
+ema:
+  _target_: dssp.model.diffusion.ema_model.EMAModel
+  update_after_step: 0
+  inv_gamma: 1.0
+  power: 0.75
+  min_value: 0.0
+  max_value: 0.9999
+
+dataloader:
+  batch_size: 1
+  num_workers: 4
+  shuffle: ${trajectory.shuffle_episodes}
+  pin_memory: True
+  persistent_workers: True
+
+val_dataloader:
+  batch_size: 256
+  num_workers: 8
+  shuffle: False
+  pin_memory: True
+  persistent_workers: False
+
+optimizer:
+  _target_: torch.optim.AdamW
+  lr: 1.0e-4
+  betas: [0.95, 0.999]
+  eps: 1.0e-8
+  weight_decay: 1.0e-6
+
+training:
+  device: "cuda:0"
+  seed: 42
+  debug: False
+  resume: False
+  lr_scheduler: cosine
+  lr_warmup_steps: 500
+  num_epochs: 1000
+  gradient_accumulate_every: 1
+  use_ema: True
+  rollout_every: 200
+  checkpoint_every: 500
+  val_every: 200
+  sample_every: 20
+  max_train_steps: null
+  max_val_steps: null
+  tqdm_interval_sec: 1.0
+
+logging:
+  group: ${exp_name}
+  id: null
+  mode: online
+  name: ${exp_name}
+  project: DSSP
+  resume: False
+  tags:
+  - DSSP
+  - Mamba
+  - Trajectory
+
+checkpoint:
+  save_ckpt: False
+  topk:
+    monitor_key: test_mean_score
+    mode: max
+    k: 1
+    format_str: 'epoch={epoch:04d}-test_mean_score={test_mean_score:.3f}.ckpt'
+  save_last_ckpt: True
+  save_last_snapshot: False
+
+hydra:
+  job:
+    override_dirname: ${name}
+  run:
+    dir: data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
+  sweep:
+    dir: data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
+    subdir: ${hydra.job.num}
+
+multi_run:
+  run_dir: data/outputs/${now:%Y.%m.%d}/${now:%H.%M.%S}_${name}_${task_name}
+  wandb_name_base: ${now:%Y.%m.%d-%H.%M.%S}_${name}_${task_name}
+
+checkpoint_num: 1000
+expert_data_num: 100
+raw_task_name: none
+setting: none

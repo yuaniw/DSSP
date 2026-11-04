@@ -12,6 +12,7 @@ import numpy as np
 from pathlib import Path
 from collections import deque
 import traceback
+import json
 
 import yaml
 from datetime import datetime
@@ -23,6 +24,40 @@ from generate_episode_instructions import *
 
 current_file_path = os.path.abspath(__file__)
 parent_directory = os.path.dirname(current_file_path)
+
+
+def _sanitize_path_component(value):
+    return str(value).replace(os.sep, "_").replace(" ", "_")
+
+
+def _normalize_cli_string(value):
+    if not isinstance(value, str):
+        return value
+    value = value.strip()
+    quote_chars = "\"'“”‘’"
+    while len(value) >= 2 and value[0] in quote_chars and value[-1] in quote_chars:
+        value = value[1:-1].strip()
+    return value
+
+
+def build_eval_save_dir(usr_args, root_dir="eval_result"):
+    task_name = _sanitize_path_component(usr_args["task_name"])
+    policy_name = _sanitize_path_component(usr_args["policy_name"])
+    task_config = _sanitize_path_component(usr_args["task_config"])
+    ckpt_setting = _sanitize_path_component(usr_args["ckpt_setting"])
+    config_name = _sanitize_path_component(usr_args.get("config_name", "default"))
+    mamba_version = usr_args.get("mamba_version")
+    seed = _sanitize_path_component(usr_args.get("seed", "unknown"))
+    checkpoint_num = _sanitize_path_component(usr_args.get("checkpoint_num", "latest"))
+
+    setup_name = config_name
+    if mamba_version:
+        setup_name = f"{setup_name}_{_sanitize_path_component(mamba_version)}"
+
+    run_name = datetime.now().strftime("run_%Y%m%d_%H%M%S_%f")
+    return Path(
+        root_dir
+    ) / task_name / policy_name / task_config / ckpt_setting / setup_name / f"seed_{seed}" / f"ckpt_{checkpoint_num}" / run_name
 
 
 def class_decorator(task_name):
@@ -62,6 +97,7 @@ def get_embodiment_config(robot_file):
 
 
 def main(usr_args):
+    usr_args = {"eval_episodes": 100, "flush_policy_on_finish": False, **usr_args}
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     task_name = usr_args["task_name"]
     task_config = usr_args["task_config"]
@@ -81,6 +117,8 @@ def main(usr_args):
     args['task_name'] = task_name
     args["task_config"] = task_config
     args["ckpt_setting"] = ckpt_setting
+    if "eval_video_log" in usr_args:
+        args["eval_video_log"] = usr_args["eval_video_log"]
 
     embodiment_type = args.get("embodiment")
     embodiment_config_path = os.path.join(CONFIGS_PATH, "_embodiment_config.yml")
@@ -121,9 +159,9 @@ def main(usr_args):
     else:
         embodiment_name = str(embodiment_type[0]) + "+" + str(embodiment_type[1])
 
-    save_dir = Path(f"eval_result/{task_name}/{policy_name}/{task_config}/{ckpt_setting}/{current_time}")
+    save_dir = build_eval_save_dir(usr_args)
     save_dir.mkdir(parents=True, exist_ok=True)
-
+    usr_args["eval_save_dir"] = str(save_dir.resolve())
     if args["eval_video_log"]:
         video_save_dir = save_dir
         camera_config = get_camera_config(args["camera"]["head_camera_type"])
@@ -159,7 +197,8 @@ def main(usr_args):
 
     st_seed = 100000 * (1 + seed)
     suc_nums = []
-    test_num = 100
+    test_num = usr_args["eval_episodes"]
+    assert test_num > 0
     topk = 1
 
     model = get_model(usr_args)
@@ -171,6 +210,8 @@ def main(usr_args):
                                    test_num=test_num,
                                    video_size=video_size,
                                    instruction_type=instruction_type)
+    if usr_args["flush_policy_on_finish"]:
+        eval_function_decorator(policy_name, "reset_model")(model)
     suc_nums.append(suc_num)
 
     topk_success_rate = sorted(suc_nums, reverse=True)[:topk]
@@ -182,7 +223,29 @@ def main(usr_args):
         # file.write(str(task_reward) + '\n')
         file.write("\n".join(map(str, np.array(suc_nums) / test_num)))
 
+    metrics = {}
+    if hasattr(model, "get_runtime_metrics"):
+        metrics = model.get_runtime_metrics()
+    metrics_payload = {
+        "task_name": task_name,
+        "policy_name": policy_name,
+        "task_config": task_config,
+        "ckpt_setting": ckpt_setting,
+        "config_name": usr_args.get("config_name"),
+        "mamba_version": usr_args.get("mamba_version"),
+        "success_rate": float(TASK_ENV.suc / TASK_ENV.test_num) if TASK_ENV.test_num else 0.0,
+        "metrics": metrics,
+        "evaluated_episodes": TASK_ENV.test_num,
+        "successful_episodes": TASK_ENV.suc,
+    }
+    metrics_path = os.path.join(save_dir, "_metrics.json")
+    with open(metrics_path, "w", encoding="utf-8") as file:
+        json.dump(metrics_payload, file, indent=2, ensure_ascii=False)
+
     print(f"Data has been saved to {file_path}")
+    print(f"Metrics have been saved to {metrics_path}")
+    if metrics:
+        print(f"Inference metrics: {json.dumps(metrics, ensure_ascii=False)}")
     # return task_reward
 
 
@@ -343,12 +406,19 @@ def parse_args_and_config():
                 value = eval(value)
             except:
                 pass
+            value = _normalize_cli_string(value)
             override_dict[key] = value
         return override_dict
 
     if args.overrides:
         overrides = parse_override_pairs(args.overrides)
         config.update(overrides)
+
+    for key, value in list(config.items()):
+        config[key] = _normalize_cli_string(value)
+
+    if config.get("ckpt_setting") is None and config.get("task_config") is not None:
+        config["ckpt_setting"] = config["task_config"]
 
     return config
 

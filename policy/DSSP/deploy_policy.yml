@@ -1,0 +1,20 @@
+# Basic experiment configuration (keep unchanged)
+policy_name: DSSP
+task_name: null
+task_config: null
+ckpt_setting: null
+seed: null
+instruction_type: unseen
+
+# Add Parameters You Need
+config_name: dssp
+checkpoint_num: 1000
+expert_data_num: null
+use_rgb: false
+use_cached_mamba_eval: true
+
+# Set an explicit file to evaluate a pre-rename checkpoint.
+checkpoint_path: null
+eval_video_log: true
+eval_episodes: 100
+mamba_version: Mamba1

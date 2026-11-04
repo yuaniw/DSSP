@@ -20,7 +20,7 @@ env_runner:
   task_name: robot
 
 dataset:
-  _target_: dssp.dataset.robot_dataset.RobotDataset
+  _target_: dssp.dataset.robot_trajectory_dataset.RobotTrajectoryDataset
   zarr_path: ../../../data/${task.name}.zarr
   horizon: ${horizon}
   pad_before: ${eval:'${n_obs_steps}-1'}

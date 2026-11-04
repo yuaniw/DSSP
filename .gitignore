@@ -37,6 +37,9 @@ envs/curobo/*
 /policy/DSSP/TRANSFER_VALIDATION.json
 /docs/RELEASE_CHECKLIST.md
 /docs/PUBLISHING_LOCAL.md
+/docs/REPRODUCIBILITY.md
+/docs/RELEASE_AUDIT.md
+/docs/UPSTREAM_ROBOTWIN.md
 
 # Generated training/evaluation artifacts
 **/wandb/

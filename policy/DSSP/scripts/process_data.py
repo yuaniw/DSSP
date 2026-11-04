@@ -1,152 +1,71 @@
-import pickle, os
-import numpy as np
-import pdb
-from copy import deepcopy
-import zarr
-import shutil
 import argparse
-import yaml
-import cv2
+from pathlib import Path
+
 import h5py
+import numpy as np
+import zarr
 
 
 def load_hdf5(dataset_path):
-    if not os.path.isfile(dataset_path):
-        print(f"Dataset does not exist at \n{dataset_path}\n")
-        exit()
-
     with h5py.File(dataset_path, "r") as root:
-        left_gripper, left_arm = (
-            root["/joint_action/left_gripper"][()],
-            root["/joint_action/left_arm"][()],
-        )
-        right_gripper, right_arm = (
-            root["/joint_action/right_gripper"][()],
-            root["/joint_action/right_arm"][()],
-        )
-        vector = root["/joint_action/vector"][()]
-        pointcloud = root["/pointcloud"][()]
+        return root["/joint_action/vector"][()], root["/pointcloud"][()]
 
-    return left_gripper, left_arm, right_gripper, right_arm, vector, pointcloud
+
+def process_demonstrations(load_dir, save_dir, num_episodes):
+    if num_episodes < 1:
+        raise ValueError("The demonstration count must be positive.")
+    # Existing datasets, including links to research data, must never be replaced.
+    if save_dir.exists() or save_dir.is_symlink():
+        raise FileExistsError(f"Dataset already exists: {save_dir}")
+
+    states, actions, point_clouds, episode_ends = [], [], [], []
+    total_steps = 0
+    for episode in range(num_episodes):
+        vector, point_cloud = load_hdf5(load_dir / f"episode{episode}.hdf5")
+        if vector.ndim != 2 or point_cloud.ndim != 3:
+            raise ValueError("Expected joint states [T, D] and point clouds [T, N, C].")
+        if len(vector) != len(point_cloud) or len(vector) < 2:
+            raise ValueError(f"Episode {episode} requires matching observations and at least two frames.")
+        states.append(vector[:-1])
+        actions.append(vector[1:])
+        point_clouds.append(point_cloud[:-1])
+        total_steps += len(vector) - 1
+        episode_ends.append(total_steps)
+
+    arrays = {
+        "state": np.concatenate(states).astype(np.float32),
+        "action": np.concatenate(actions).astype(np.float32),
+        "point_cloud": np.concatenate(point_clouds),
+    }
+    # Exclusive creation also prevents overwriting a dataset created concurrently.
+    root = zarr.open_group(str(save_dir), mode="w-")
+    data = root.create_group("data")
+    meta = root.create_group("meta")
+    compressor = zarr.Blosc(cname="zstd", clevel=3, shuffle=1)
+    for name, values in arrays.items():
+        data.create_dataset(
+            name, data=values, chunks=(min(100, len(values)),) + values.shape[1:],
+            compressor=compressor,
+        )
+    meta.create_dataset(
+        "episode_ends", data=np.asarray(episode_ends, dtype=np.int64),
+        compressor=compressor,
+    )
+    print(f"Saved {num_episodes} episodes ({total_steps} transitions) to {save_dir}")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Process some episodes.")
-    parser.add_argument(
-        "task_name",
-        type=str,
-        help="The name of the task (e.g., beat_block_hammer)",
-    )
-    parser.add_argument("task_config", type=str)
-    parser.add_argument(
-        "expert_data_num",
-        type=int,
-        help="Number of episodes to process (e.g., 50)",
-    )
+    parser = argparse.ArgumentParser(description="Convert RoboTwin demonstrations to a DSSP Zarr dataset.")
+    parser.add_argument("task_name")
+    parser.add_argument("task_config")
+    parser.add_argument("expert_data_num", type=int)
     args = parser.parse_args()
+    policy_root = Path(__file__).resolve().parents[1]
+    repository_root = policy_root.parents[1]
+    load_dir = repository_root / "data" / args.task_name / args.task_config / "data"
+    save_dir = policy_root / "data" / f"{args.task_name}-{args.task_config}-{args.expert_data_num}.zarr"
+    process_demonstrations(load_dir, save_dir, args.expert_data_num)
 
-    task_name = args.task_name
-    num = args.expert_data_num
-    task_config = args.task_config
-
-    load_dir = "../../data/" + str(task_name) + "/" + str(task_config)
-
-    total_count = 0
-
-    save_dir = f"./data/{task_name}-{task_config}-{num}.zarr"
-
-    if os.path.exists(save_dir):
-        shutil.rmtree(save_dir)
-
-    current_ep = 0
-
-    zarr_root = zarr.group(save_dir)
-    zarr_data = zarr_root.create_group("data")
-    zarr_meta = zarr_root.create_group("meta")
-
-    point_cloud_arrays = []
-    episode_ends_arrays, action_arrays, state_arrays, joint_action_arrays = (
-        [],
-        [],
-        [],
-        [],
-    )
-
-    while current_ep < num:
-        print(f"processing episode: {current_ep + 1} / {num}", end="\r")
-
-        load_path = os.path.join(load_dir, f"data/episode{current_ep}.hdf5")
-        (
-            left_gripper_all,
-            left_arm_all,
-            right_gripper_all,
-            right_arm_all,
-            vector_all,
-            pointcloud_all,
-        ) = load_hdf5(load_path)
-
-        for j in range(0, left_gripper_all.shape[0]):
-
-            pointcloud = pointcloud_all[j]
-            joint_state = vector_all[j]
-
-            if j != left_gripper_all.shape[0] - 1:
-                point_cloud_arrays.append(pointcloud)
-                state_arrays.append(joint_state)
-            if j != 0:
-                joint_action_arrays.append(joint_state)
-
-        current_ep += 1
-        total_count += left_gripper_all.shape[0] - 1
-        episode_ends_arrays.append(total_count)
-
-    print()
-    try:
-        episode_ends_arrays = np.array(episode_ends_arrays)
-        state_arrays = np.array(state_arrays)
-        point_cloud_arrays = np.array(point_cloud_arrays)
-        joint_action_arrays = np.array(joint_action_arrays)
-    
-        compressor = zarr.Blosc(cname="zstd", clevel=3, shuffle=1)
-        state_chunk_size = (100, state_arrays.shape[1])
-        joint_chunk_size = (100, joint_action_arrays.shape[1])
-        point_cloud_chunk_size = (100, point_cloud_arrays.shape[1])
-        zarr_data.create_dataset(
-            "point_cloud",
-            data=point_cloud_arrays,
-            chunks=point_cloud_chunk_size,
-            overwrite=True,
-            compressor=compressor,
-        )
-        zarr_data.create_dataset(
-            "state",
-            data=state_arrays,
-            chunks=state_chunk_size,
-            dtype="float32",
-            overwrite=True,
-            compressor=compressor,
-        )
-        zarr_data.create_dataset(
-            "action",
-            data=joint_action_arrays,
-            chunks=joint_chunk_size,
-            dtype="float32",
-            overwrite=True,
-            compressor=compressor,
-        )
-        zarr_meta.create_dataset(
-            "episode_ends",
-            data=episode_ends_arrays,
-            dtype="int64",
-            overwrite=True,
-            compressor=compressor,
-        )
-    except ZeroDivisionError as e:
-        print("If you get a `ZeroDivisionError: division by zero`, check that `data/pointcloud` in the task config is set to true.")
-        raise 
-    except Exception as e:
-        print(f"An unexpected error occurred ({type(e).__name__}): {e}")
-        raise
 
 if __name__ == "__main__":
     main()

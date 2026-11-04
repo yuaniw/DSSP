@@ -1,5 +1,6 @@
 defaults:
   - task: demo_task
+  - _self_
 
 name: dssp
 
@@ -150,6 +151,7 @@ training:
   seed: 42
   debug: False
   resume: False
+  resume_path: null
   lr_scheduler: cosine
   lr_warmup_steps: 500
   num_epochs: 1000

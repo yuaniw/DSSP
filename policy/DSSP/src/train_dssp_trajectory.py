@@ -9,6 +9,11 @@ if __name__ == "__main__":
 
 import copy
 import pathlib
+import random
+import math
+import json
+
+import dill
 
 import hydra
 import numpy as np
@@ -53,11 +58,24 @@ class TrainDSSPTrajectoryWorkspace(TrainDSSPWorkspace):
             cfg.training.max_val_steps = 3
             cfg.training.checkpoint_every = 1
 
+        resume_state = {}
         if cfg.training.resume:
-            lastest_ckpt_path = self.get_checkpoint_path()
-            if lastest_ckpt_path.is_file():
-                print(f"Resuming from checkpoint {lastest_ckpt_path}")
-                self.load_checkpoint(path=lastest_ckpt_path)
+            if cfg.training.resume_path:
+                resume_path = pathlib.Path(cfg.training.resume_path).expanduser()
+            else:
+                checkpoint_dir = pathlib.Path(self._checkpoint_dir(cfg, cfg.training.seed))
+                resume_path = max(checkpoint_dir.glob("[0-9]*.ckpt"), key=lambda p: int(p.stem))
+            print(f"Resuming from checkpoint {resume_path}")
+            payload = self.load_checkpoint(
+                path=resume_path, include_keys=("global_step", "epoch")
+            )
+            if "trajectory_state" in payload["pickles"]:
+                resume_state = dill.loads(payload["pickles"]["trajectory_state"])
+            else:
+                # Historical checkpoints saved counters before epoch completion.
+                self.epoch += 1
+                self.global_step += 1
+                print("Legacy checkpoint: optimizer and EMA weights restored; RNG state was not saved.")
 
         dataset: BaseDataset = hydra.utils.instantiate(cfg.task.dataset)
         assert isinstance(dataset, BaseDataset), print(f"dataset must be BaseDataset, got {type(dataset)}")
@@ -71,18 +89,31 @@ class TrainDSSPTrajectoryWorkspace(TrainDSSPWorkspace):
         if cfg.training.use_ema:
             self.ema_model.set_normalizer(normalizer)
 
+        batches_per_epoch = len(train_dataloader)
+        if cfg.training.max_train_steps:
+            batches_per_epoch = min(batches_per_epoch, cfg.training.max_train_steps)
+        accumulation = cfg.training.gradient_accumulate_every
+        if accumulation < 1:
+            raise ValueError("gradient_accumulate_every must be positive.")
+        updates_per_epoch = math.ceil(batches_per_epoch / accumulation)
         lr_scheduler = get_scheduler(
             cfg.training.lr_scheduler,
             optimizer=self.optimizer,
             num_warmup_steps=cfg.training.lr_warmup_steps,
-            num_training_steps=(len(train_dataloader) * cfg.training.num_epochs)
-            // cfg.training.gradient_accumulate_every,
-            last_epoch=self.global_step - 1,
+            num_training_steps=updates_per_epoch * cfg.training.num_epochs,
+            last_epoch=self.epoch * updates_per_epoch - 1,
         )
+        if resume_state:
+            lr_scheduler.load_state_dict(resume_state["lr_scheduler"])
+            for group, lr in zip(self.optimizer.param_groups, lr_scheduler.get_last_lr()):
+                group["lr"] = lr
 
         ema: EMAModel = None
         if cfg.training.use_ema:
             ema = hydra.utils.instantiate(cfg.ema, model=self.ema_model)
+            ema.optimization_step = self.epoch * updates_per_epoch
+            if resume_state:
+                ema.optimization_step = resume_state["ema_step"]
 
         cfg.logging.name = str(cfg.task.name)
         cprint("-----------------------------", "yellow")
@@ -103,7 +134,16 @@ class TrainDSSPTrajectoryWorkspace(TrainDSSPWorkspace):
             self.ema_model.to(device)
         optimizer_to(self.optimizer, device)
 
-        for _ in range(cfg.training.num_epochs):
+        if resume_state:
+            random.setstate(resume_state["python_rng"])
+            np.random.set_state(resume_state["numpy_rng"])
+            torch.set_rng_state(resume_state["torch_rng"])
+            if device.type == "cuda":
+                torch.cuda.set_rng_state_all(resume_state["cuda_rng"])
+
+        self.optimizer.zero_grad()
+        completed_updates = 0
+        for _ in range(self.epoch, cfg.training.num_epochs):
             step_log = dict()
             train_losses = []
             with tqdm.tqdm(
@@ -122,15 +162,18 @@ class TrainDSSPTrajectoryWorkspace(TrainDSSPWorkspace):
 
                     batch = dict_apply(batch, lambda x: x.to(device, non_blocking=True))
                     raw_loss, loss_dict = self.model.compute_loss_trajectory(batch)
-                    loss = raw_loss / cfg.training.gradient_accumulate_every
+                    group_start = (batch_idx // accumulation) * accumulation
+                    group_size = min(accumulation, batches_per_epoch - group_start)
+                    loss = raw_loss / group_size
                     loss.backward()
 
-                    if self.global_step % cfg.training.gradient_accumulate_every == 0:
+                    if (batch_idx + 1) % accumulation == 0 or batch_idx + 1 == batches_per_epoch:
                         self.optimizer.step()
                         self.optimizer.zero_grad()
                         lr_scheduler.step()
-                    if cfg.training.use_ema:
-                        ema.step(self.model)
+                        completed_updates += 1
+                        if cfg.training.use_ema:
+                            ema.step(self.model)
 
                     raw_loss_cpu = raw_loss.item()
                     tepoch.set_postfix(loss=raw_loss_cpu, refresh=False)
@@ -150,11 +193,10 @@ class TrainDSSPTrajectoryWorkspace(TrainDSSPWorkspace):
                         train_step_time_ms.add(t1.elapsed_time(t2))
                     train_peak_memory_mb.add(peak_memory_mb())
 
-                    is_last_batch = batch_idx == (len(train_dataloader) - 1)
-                    if not is_last_batch:
-                        if WANDB:
-                            wandb_run.log(step_log, step=self.global_step)
-                        self.global_step += 1
+                    is_last_batch = batch_idx + 1 == batches_per_epoch
+                    if not is_last_batch and WANDB:
+                        wandb_run.log(step_log, step=self.global_step)
+                    self.global_step += 1
 
                     if cfg.training.max_train_steps is not None and batch_idx >= (cfg.training.max_train_steps - 1):
                         break
@@ -181,21 +223,33 @@ class TrainDSSPTrajectoryWorkspace(TrainDSSPWorkspace):
                     if val_losses:
                         step_log["val_loss"] = torch.mean(torch.tensor(val_losses)).item()
 
-            if ((self.epoch + 1) % cfg.training.checkpoint_every) == 0 and cfg.checkpoint.save_ckpt:
-                checkpoint_dir = self._checkpoint_dir(cfg, cfg.training.seed)
-                checkpoint_dir = pathlib.Path(checkpoint_dir)
-                checkpoint_dir.mkdir(parents=True, exist_ok=True)
-                save_path = checkpoint_dir.joinpath(f"{self.epoch + 1}.ckpt")
-                self.save_checkpoint(save_path)
-
             policy.train()
+            with pathlib.Path(self.output_dir).joinpath("train_log.jsonl").open("a") as file:
+                file.write(json.dumps(step_log) + "\n")
             if WANDB:
-                wandb_run.log(step_log, step=self.global_step)
-            self.global_step += 1
+                wandb_run.log(step_log, step=self.global_step - 1)
             self.epoch += 1
+            if self.epoch % cfg.training.checkpoint_every == 0 and cfg.checkpoint.save_ckpt:
+                checkpoint_dir = pathlib.Path(self._checkpoint_dir(cfg, cfg.training.seed))
+                checkpoint_dir.mkdir(parents=True, exist_ok=True)
+                self.trajectory_state = {
+                    "lr_scheduler": lr_scheduler.state_dict(),
+                    "ema_step": ema.optimization_step if cfg.training.use_ema else 0,
+                    "python_rng": random.getstate(),
+                    "numpy_rng": np.random.get_state(),
+                    "torch_rng": torch.get_rng_state(),
+                    "cuda_rng": torch.cuda.get_rng_state_all() if device.type == "cuda" else [],
+                }
+                self.save_checkpoint(
+                    checkpoint_dir / f"{self.epoch}.ckpt",
+                    include_keys=("global_step", "epoch", "trajectory_state"),
+                )
             del step_log
 
         train_metrics = {
+            "completed_epochs": self.epoch,
+            "optimizer_updates_this_run": completed_updates,
+            "global_step": self.global_step,
             "config_name": cfg.name,
             "policy_target": cfg.policy._target_,
             "mamba_version": cfg.policy.get("mamba_version", None),

@@ -19,7 +19,7 @@
 
 DSSP conditions robot actions on the full observation history. A compact state-space memory captures task progress, while recent observations provide local control information for diffusion-based action generation.
 
-This repository contains the **DSSP implementation for RoboTwin 2.0**, including trajectory training, cached inference, and evaluation with video recording. The other benchmarks and real-robot systems described in the paper are outside this release.
+This repository contains the **DSSP implementation for RoboTwin 2.0**, including trajectory training, cached inference, and evaluation with video recording.
 
 <p align="center">
   <img src="https://yuaniw.github.io/DSSP-Page/static/images/dssp-teaser.jpg" alt="History-dependent robot manipulation with DSSP" width="900">
@@ -39,7 +39,7 @@ See the [paper](https://arxiv.org/abs/2605.14598) for the formulation and the [i
 
 ## Results
 
-RoboTwin 2.0 results from Table 1, as reported on the [project page](https://yuaniw.github.io/DSSP-Page/#results). Success rates are percentages (↑); parameter counts are shown in the last column (↓).
+DSSP achieves **62.30% average success** across 50 RoboTwin 2.0 tasks with **44.3M parameters**. The table below presents the paper's RoboTwin 2.0 comparison (Table 1). Success rates are percentages (↑); parameter counts are shown in the last column (↓).
 
 | Method | Observation | Short (18) | Mid (15) | Long (17) | Average | Parameters |
 |---|---|---:|---:|---:|---:|---:|
@@ -56,15 +56,22 @@ RoboTwin 2.0 results from Table 1, as reported on the [project page](https://yua
 | CycleManip | Point cloud | 57.78 | 49.27 | 54.47 | 54.10 | 279.2M |
 | **DSSP (ours)** | Point cloud | 64.78 | **57.33** | **64.06** | **62.30** | **44.3M** |
 
-Bold numeric entries indicate the best result in each column. Short, Mid, and Long contain 18, 15, and 17 tasks, respectively. The benchmark uses 50 tasks and 100 evaluation episodes per task under `demo_clean`; observation modalities differ across methods. These are manuscript results; the release checkout has separately been validated on Stack Bowls Two. See [reproduction notes](docs/REPRODUCIBILITY.md) for that validation and its scope.
+Bold numeric entries indicate the best result in each column. The benchmark uses 50 tasks and 100 evaluation episodes per task under `demo_clean`; observation modalities differ across methods.
 
 ## Getting started
+
+Clone the repository:
+
+```bash
+git clone https://github.com/yuaniw/DSSP.git
+cd DSSP
+```
 
 ### 1. Environment and simulator assets
 
 Follow the official [RoboTwin installation and asset setup](https://robotwin-platform.github.io/doc/usage/robotwin-install.html) for the simulator, rendering dependencies, robot embodiments, and objects. Use this checkout for DSSP training and evaluation.
 
-DSSP-specific dependency versions are recorded in [policy/DSSP/environment.yaml](policy/DSSP/environment.yaml). The tested stack uses Python 3.10, PyTorch 2.4.1 with CUDA 12.1, Mamba-SSM 2.2.2, and causal-conv1d 1.4.0. See the [environment notes](policy/DSSP/README.md#environment) before installing CUDA-dependent packages. A fresh installation from the environment file has not yet been validated.
+The DSSP environment uses Python 3.10, PyTorch 2.4.1 with CUDA 12.1, Mamba-SSM 2.2.2, and causal-conv1d 1.4.0. Follow the [installation guide](docs/INSTALLATION.md) to install the dependencies in [policy/DSSP/environment.yaml](policy/DSSP/environment.yaml), including the CUDA extensions.
 
 Once those dependencies are installed, register DSSP in the active environment:
 
@@ -83,7 +90,7 @@ For the example below, place 50 raw demonstrations in `data/stack_bowls_two/demo
 bash policy/DSSP/process_data.sh stack_bowls_two demo_clean 50
 ```
 
-This creates `policy/DSSP/data/stack_bowls_two-demo_clean-50.zarr`. Skip preprocessing if you already have the processed dataset. Dataset files, assets, and checkpoints are not bundled with the code; public DSSP checkpoint downloads are not yet listed. See [data layout](policy/DSSP/README.md#data-layout).
+This creates `policy/DSSP/data/stack_bowls_two-demo_clean-50.zarr`. Skip preprocessing if you already have the processed dataset. Simulator assets and demonstrations are downloaded or collected separately. See [data layout](policy/DSSP/README.md#data-layout).
 
 ### 3. Train
 
@@ -103,13 +110,7 @@ Checkpoints are written to `policy/DSSP/checkpoints/<task>-<setting>-<demos>_<se
 bash policy/DSSP/eval.sh stack_bowls_two demo_clean demo_clean 50 2 0
 ```
 
-The default evaluates checkpoint `1000.ckpt` for 100 episodes with cached inference and video recording enabled. Results and `episode<N>.mp4` videos are written under `eval_result/<task>/DSSP/`.
-
-For a single-episode check:
-
-```bash
-bash policy/DSSP/eval.sh stack_bowls_two demo_clean demo_clean 50 2 0 --eval_episodes 1
-```
+After training, this command evaluates `1000.ckpt` for 100 episodes with cached inference and video recording enabled. Results and `episode<N>.mp4` videos are written under `eval_result/<task>/DSSP/`. To use a checkpoint stored elsewhere, pass `--checkpoint_path /absolute/path/to/model.ckpt`.
 
 See the [usage guide](policy/DSSP/README.md) for configuration overrides, explicit checkpoint paths, output layout, and Slurm usage.
 
@@ -118,7 +119,7 @@ See the [usage guide](policy/DSSP/README.md) for configuration overrides, explic
 ```text
 policy/DSSP/
   src/dssp/
-    config/dssp.yaml           # Selected DSSP configuration
+    config/dssp.yaml           # DSSP configuration
     policy/dssp.py             # DSSP policy and auxiliary objective
     policy/dssp_base.py        # Shared diffusion-policy implementation
     model/diffusion/           # History encoder, denoiser, and dynamics head
@@ -128,12 +129,12 @@ policy/DSSP/
   README.md                   # Detailed usage and implementation map
 envs/                         # RoboTwin simulation tasks
 task_config/                  # Simulator and observation settings
-docs/REPRODUCIBILITY.md        # Release validation and compatibility notes
+docs/INSTALLATION.md           # Environment and dependency setup
 ```
 
 ## Citation
 
-If DSSP is useful for your research, please cite the paper. The entry below follows the [project page citation](https://yuaniw.github.io/DSSP-Page/#bibtex).
+If you use DSSP in your research, please cite:
 
 ```bibtex
 @inproceedings{guan2026dssp,
@@ -151,8 +152,8 @@ If DSSP is useful for your research, please cite the paper. The entry below foll
 
 ## Acknowledgments and license
 
-DSSP builds on [RoboTwin](https://github.com/RoboTwin-Platform/RoboTwin), [3D Diffusion Policy](https://github.com/YanjieZe/3D-Diffusion-Policy), and [Mamba](https://github.com/state-spaces/mamba). We thank their authors for making their work available. Upstream project information and citations are preserved in [the RoboTwin archive](docs/UPSTREAM_ROBOTWIN.md).
+DSSP builds on [RoboTwin](https://github.com/RoboTwin-Platform/RoboTwin), [3D Diffusion Policy](https://github.com/YanjieZe/3D-Diffusion-Policy), and [Mamba](https://github.com/state-spaces/mamba). We thank their authors for making their work available. See the [official RoboTwin documentation](https://robotwin-platform.github.io/doc/) for simulator setup and usage.
 
-The upstream [LICENSE](LICENSE) and copyright notice are retained. Refer to the respective upstream projects for their dependency licenses.
+See [LICENSE](LICENSE) and [third-party notices](THIRD_PARTY_NOTICES.md) for the retained upstream license and copyright notices.
 
 For implementation questions, please open an issue in this repository. Paper correspondence: [Yutong Ban](mailto:yban@sjtu.edu.cn).

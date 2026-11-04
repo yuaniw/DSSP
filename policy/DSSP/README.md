@@ -1,14 +1,14 @@
-# DSSP implementation guide
+# DSSP usage guide
 
 See the [main README](../../README.md) for the paper, method overview, figures, and benchmark results. This guide covers the RoboTwin implementation and its command-line interfaces. Run all commands from the repository root.
 
 ## Environment
 
-Start with the official [RoboTwin simulator and asset installation](https://robotwin-platform.github.io/doc/usage/robotwin-install.html). This checkout is based on RoboTwin revision `ea25643210c3036e57eb44b4cd4b59b8dc1e98d7`; future upstream instructions may describe a different revision.
+Set up the simulator and assets using the official [RoboTwin installation guide](https://robotwin-platform.github.io/doc/usage/robotwin-install.html), then install the DSSP dependencies following [INSTALLATION.md](../../docs/INSTALLATION.md).
 
-[environment.yaml](environment.yaml) records the DSSP dependency versions used for validation:
+The main dependency versions are:
 
-| Component | Tested version |
+| Component | Version |
 |---|---|
 | Python | 3.10 |
 | PyTorch | 2.4.1 + CUDA 12.1 |
@@ -18,7 +18,7 @@ Start with the official [RoboTwin simulator and asset installation](https://robo
 | Diffusers | 0.18.2 |
 | SAPIEN | 3.0.0b1 |
 
-The environment file is a version reference, not a verified one-command installer. PyTorch/PyTorch3D wheels must match the CUDA stack; Mamba and causal-conv1d may require a compatible build toolchain. A clean installation has not yet been tested. After installing the dependencies:
+PyTorch3D and the CUDA extensions must match the installed PyTorch/CUDA stack. After installing the dependencies, register the DSSP package:
 
 ```bash
 python -m pip install -e policy/DSSP/src
@@ -55,9 +55,9 @@ policy/DSSP/data/<task>-<setting>-<demos>.zarr/
   meta/episode_ends
 ```
 
-The preprocessing script replaces an existing output dataset with the same name. Skip this step when reusing a prepared Zarr dataset. Training requires the processed dataset to exist; it does not automatically recollect or preprocess data.
+The preprocessing script refuses to overwrite an existing output dataset, including symlinks. Missing or invalid input fails before an output dataset is created. Skip this step when reusing a prepared Zarr dataset. Training requires the processed dataset to exist; it does not automatically recollect or preprocess data.
 
-The release code does not bundle simulator assets, demonstrations, or checkpoints. Local validation reused data through filesystem links; those links are not portable to another machine.
+Download or collect the simulator assets and demonstrations separately. Train a model using the commands below to obtain a checkpoint for evaluation.
 
 ## Training
 
@@ -68,10 +68,10 @@ bash policy/DSSP/train.sh stack_bowls_two demo_clean 50 2 0
 
 The launcher selects [dssp.yaml](src/dssp/config/dssp.yaml) and the trajectory trainer. Defaults include 1,000 epochs, EMA, 49 training demonstrations plus one validation demonstration for this 50-demo example, and disabled online experiment tracking. Set `WANDB_MODE=online` to enable Weights & Biases.
 
-Hydra overrides follow the GPU argument. For a one-epoch training check without writing checkpoints:
+Pass Hydra overrides after the GPU argument. For example, to run a shorter training schedule and save a checkpoint every 100 epochs:
 
 ```bash
-bash policy/DSSP/train.sh stack_bowls_two demo_clean 50 2 0   training.num_epochs=1 checkpoint.save_ckpt=false
+bash policy/DSSP/train.sh stack_bowls_two demo_clean 50 2 0 training.num_epochs=100 training.checkpoint_every=100
 ```
 
 Checkpoints are saved every 500 epochs by default:
@@ -82,7 +82,19 @@ policy/DSSP/checkpoints/<task>-<setting>-<demos>_<seed>_dssp_Mamba1/
   1000.ckpt
 ```
 
-Training outputs, including `train_metrics.json`, are written to `policy/DSSP/data/outputs/<task>-dssp-paper_seed<seed>/`. Use `hydra.run.dir=/absolute/output/path` to select another run directory.
+Training outputs, including `train_metrics.json` and per-epoch loss records in `train_log.jsonl`, are written to `policy/DSSP/data/outputs/<task>-dssp-paper_seed<seed>/`. Use `hydra.run.dir=/absolute/output/path` to select another log directory. Checkpoint paths depend on the task, setting, demonstration count, and training seed; changing the log directory does not change the checkpoint directory.
+
+## Resume training
+
+Resume the latest numbered checkpoint for the same task, setting, and seed:
+
+```bash
+bash policy/DSSP/train.sh stack_bowls_two demo_clean 50 2 0 training.resume=true
+```
+
+Set `training.resume_path=/absolute/path/500.ckpt` to select a particular checkpoint. `training.num_epochs` remains the total target epoch count, including completed epochs. Keep the dataset, seed, batch/accumulation settings, and total training schedule the same when resuming. A requested resume with no checkpoint fails instead of starting a new run.
+
+Trajectory checkpoints include model and optimizer state, training progress, scheduler and EMA progress, and Python/NumPy/PyTorch random states. GPU operations and DataLoader worker state can affect exact numerical replay.
 
 ## Evaluation
 
@@ -108,12 +120,14 @@ Outputs:
 eval_result/<task>/DSSP/<task_config>/<ckpt_setting>/dssp_Mamba1/
   seed_<seed>/ckpt_<checkpoint_num>/run_<timestamp>/
     _metrics.json
+    _config.json
+    _episodes.jsonl
     _result.txt
     episode0.mp4
     ...
 ```
 
-The metrics record the success rate, evaluated/successful episode counts, model class, and performance measurements. Video filenames are indexed by episode.
+The metrics record the success rate, evaluated/successful episode counts, model class, and performance measurements. `_config.json` records the requested evaluation and environment configuration. `_episodes.jsonl` records each accepted scene seed, success flag, and executed action count, so comparisons can be matched by scene. Video filenames are indexed by episode.
 
 ## Slurm
 
@@ -123,7 +137,7 @@ Run the same launchers inside a Slurm job with a GPU allocation and the desired 
 
 | Component | Implementation |
 |---|---|
-| Selected configuration | [dssp.yaml](src/dssp/config/dssp.yaml) |
+| Configuration | [dssp.yaml](src/dssp/config/dssp.yaml) |
 | DSSP policy and trajectory loss | [DSSP](src/dssp/policy/dssp.py) |
 | Shared diffusion policy | [DSSPBase](src/dssp/policy/dssp_base.py) |
 | History encoder | [DSSPHistoryEncoder](src/dssp/model/diffusion/dssp_history_encoder.py) |
@@ -134,10 +148,14 @@ Run the same launchers inside a Slurm job with a GPU allocation and the desired 
 | Training workspace | [TrainDSSPTrajectoryWorkspace](src/train_dssp_trajectory.py) |
 | RoboTwin integration | [deploy_policy.py](deploy_policy.py) and [dssp_policy.py](src/dssp_policy.py) |
 
-The selected policy uses one full-history context token and three recent observation tokens, an eight-step action horizon, six actions per execution chunk, ten DDIM steps, and a cosine dynamics loss weighted by 0.05. The progress loss is disabled. Its inactive head remains in the implementation to preserve compatibility with existing checkpoint keys.
+DSSP uses one full-history context token and three recent observation tokens, an eight-step action horizon, six actions per execution chunk, ten DDIM steps, and a cosine dynamics loss weighted by 0.05. The default configuration disables the progress auxiliary loss.
 
-## Checkpoints and release validation
+## Tests
 
-State-dictionary `.ckpt` files from the selected pre-rename implementation load strictly. Full-workspace pickle snapshots remain tied to their original module names. Use `--checkpoint_path` for a checkpoint stored outside the canonical DSSP directory.
+Run the preprocessing and evaluation-argument tests from the repository root:
 
-See [reproduction and compatibility notes](../../docs/REPRODUCIBILITY.md) for the existing 1,000-epoch training run, 100-episode evaluations, and the DSSP rename checks.
+```bash
+python -m unittest discover -s tests -v
+```
+
+These tests do not require CUDA or simulator assets.

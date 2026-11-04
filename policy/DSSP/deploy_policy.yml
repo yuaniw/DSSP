@@ -13,7 +13,7 @@ expert_data_num: null
 use_rgb: false
 use_cached_mamba_eval: true
 
-# Set an explicit file to evaluate a pre-rename checkpoint.
+# Optional checkpoint file outside the default checkpoint directory.
 checkpoint_path: null
 eval_video_log: true
 eval_episodes: 100

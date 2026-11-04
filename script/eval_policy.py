@@ -162,6 +162,9 @@ def main(usr_args):
     save_dir = build_eval_save_dir(usr_args)
     save_dir.mkdir(parents=True, exist_ok=True)
     usr_args["eval_save_dir"] = str(save_dir.resolve())
+    with (save_dir / "_config.json").open("w", encoding="utf-8") as file:
+        json.dump({"evaluation": usr_args, "environment": args}, file, indent=2)
+    args["episode_record_path"] = str(save_dir / "_episodes.jsonl")
     if args["eval_video_log"]:
         video_save_dir = save_dir
         camera_config = get_camera_config(args["camera"]["head_camera_type"])
@@ -237,6 +240,9 @@ def main(usr_args):
         "metrics": metrics,
         "evaluated_episodes": TASK_ENV.test_num,
         "successful_episodes": TASK_ENV.suc,
+        "seed": seed,
+        "checkpoint_num": usr_args["checkpoint_num"],
+        "episode_records": "_episodes.jsonl",
     }
     metrics_path = os.path.join(save_dir, "_metrics.json")
     with open(metrics_path, "w", encoding="utf-8") as file:
@@ -369,6 +375,14 @@ def eval_policy(task_name,
         else:
             print("\033[91mFail!\033[0m")
 
+        with open(args["episode_record_path"], "a", encoding="utf-8") as file:
+            file.write(json.dumps({
+                "episode": TASK_ENV.test_num,
+                "scene_seed": now_seed,
+                "success": succ,
+                "action_steps": TASK_ENV.take_action_cnt,
+            }) + "\n")
+
         now_id += 1
         TASK_ENV.close_env(clear_cache=((succ_seed + 1) % clear_cache_freq == 0))
 
@@ -402,10 +416,7 @@ def parse_args_and_config():
         for i in range(0, len(pairs), 2):
             key = pairs[i].lstrip("--")
             value = pairs[i + 1]
-            try:
-                value = eval(value)
-            except:
-                pass
+            value = yaml.safe_load(value)
             value = _normalize_cli_string(value)
             override_dict[key] = value
         return override_dict

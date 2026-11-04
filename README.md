@@ -35,7 +35,7 @@ This repository contains the **DSSP implementation for RoboTwin 2.0**, including
 2. **Dynamics-aware learning.** An auxiliary prediction objective encourages this context to retain information about future state evolution.
 3. **Hierarchical action conditioning.** A state-space denoiser uses the history context and recent observation tokens, with diffusion timestep modulation through AdaLN.
 
-See the [paper](https://arxiv.org/abs/2605.14598) for the formulation and the [implementation guide](policy/DSSP/README.md#implementation-map) for the corresponding code.
+See the [paper](https://arxiv.org/abs/2605.14598) for the formulation and the [implementation guide](policy/DSSP/README.md#configuration-and-method-code) for the corresponding code.
 
 ## Results
 
@@ -89,9 +89,6 @@ This creates `policy/DSSP/data/stack_bowls_two-demo_clean-50.zarr`. Skip preproc
 # Arguments: task, setting, demonstration count, training seed, GPU index.
 bash policy/DSSP/train.sh stack_bowls_two demo_clean 50 2 0
 ```
-
-The [DSSP configuration](policy/DSSP/src/dssp/config/dssp.yaml) uses full-trajectory training, XYZ point clouds, Mamba1, EMA, and 1,000 epochs. It combines one history context token with three recent observation tokens, an eight-step action horizon, six executed actions per chunk, and a dynamics loss weight of 0.05.
-
 Checkpoints are written to `policy/DSSP/checkpoints/<task>-<setting>-<demos>_<seed>_dssp_Mamba1/`.
 
 ### 4. Evaluate and record videos
@@ -103,7 +100,7 @@ bash policy/DSSP/eval.sh stack_bowls_two demo_clean demo_clean 50 2 0
 
 After training, this command evaluates `1000.ckpt` for 100 episodes with cached inference and video recording enabled. Results and `episode<N>.mp4` videos are written under `eval_result/<task>/DSSP/`. To use a checkpoint stored elsewhere, pass `--checkpoint_path /absolute/path/to/model.ckpt`.
 
-See the [usage guide](policy/DSSP/README.md) for configuration overrides, explicit checkpoint paths, output layout, and Slurm usage.
+See the [usage guide](policy/DSSP/README.md) for data preparation, checkpoint selection, and evaluation outputs.
 
 ## Repository structure
 
@@ -117,7 +114,7 @@ policy/DSSP/
   src/train_dssp_trajectory.py # Trajectory training entry point
   deploy_policy.py             # RoboTwin observation/action adapter
   train.sh / eval.sh           # Training and evaluation launchers
-  README.md                   # Detailed usage and implementation map
+  README.md                   # Usage guide and method code
 envs/                         # RoboTwin simulation tasks
 task_config/                  # Simulator and observation settings
 docs/INSTALLATION.md           # Environment and dependency setup

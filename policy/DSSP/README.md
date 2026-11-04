@@ -1,124 +1,87 @@
-# DSSP usage guide
+# DSSP on RoboTwin
 
-See the [main README](../../README.md) for the paper, method overview, figures, and benchmark results. This guide covers the RoboTwin implementation and its command-line interfaces. Run all commands from the repository root.
+This guide covers data preparation, training, and evaluation for DSSP on RoboTwin.
 
-## Environment
+See the [main README](../../README.md) for the method and benchmark results. Run all commands below from the repository root.
 
-Follow the [installation guide](../../docs/INSTALLATION.md) to create the Conda environment, set up RoboTwin using its installation and asset scripts, and install DSSP.
+## 1. Set up the environment
 
-The main dependency versions are:
-
-| Component | Version |
-|---|---|
-| Python | 3.10 |
-| PyTorch | 2.4.1 + CUDA 12.1 |
-| Mamba-SSM | 2.2.2 |
-| causal-conv1d | 1.4.0 |
-| PyTorch3D | 0.7.9 + PyTorch 2.4.1 / CUDA 12.1 |
-| Diffusers | 0.18.2 |
-| SAPIEN | 3.0.0b1 |
-
-PyTorch3D and the CUDA extensions must match the installed PyTorch/CUDA stack. After installing the dependencies, register the DSSP package:
+Complete the [installation guide](../../docs/INSTALLATION.md), including the RoboTwin simulator assets and DSSP dependencies. Then activate the environment:
 
 ```bash
-python -m pip install -e policy/DSSP/src
+conda activate RoboTwin-DSSP
+export PYTHONNOUSERSITE=1
 ```
 
-The launchers use the active `python`. Set `PYTHON` to an interpreter path when required. Video recording uses the FFmpeg binary bundled with `imageio-ffmpeg`; set `IMAGEIO_FFMPEG_EXE` to use another binary with `libx264` support.
+## 2. Prepare demonstrations
 
-## Data layout
+Collect demonstrations using the provided task configuration:
 
-Obtain or collect demonstrations following [RoboTwin data collection](https://robotwin-platform.github.io/doc/usage/collect-data.html). Enable `data_type.pointcloud` and joint-state observations in the [task configuration](../../task_config/demo_clean.yml).
+```bash
+# Arguments: task, data setting, GPU index.
+bash collect_data.sh stack_bowls_two demo_clean 0
+```
 
-Raw demonstrations:
+The included [demo_clean configuration](../../task_config/demo_clean.yml) collects 50 demonstrations with point clouds and joint states enabled. See the [RoboTwin data collection guide](https://robotwin-platform.github.io/doc/usage/collect-data.html) for other collection settings.
+
+### Data layout
+
+Skip collection if you already have the demonstrations. Place the 50 episode files in:
 
 ```text
-data/<task>/<setting>/data/
+data/stack_bowls_two/demo_clean/data/
   episode0.hdf5
-  episode1.hdf5
   ...
+  episode49.hdf5
 ```
 
-Preprocess the desired demonstration count:
+Convert them to the dataset used by DSSP:
 
 ```bash
+# Arguments: task, data setting, demonstration count.
 bash policy/DSSP/process_data.sh stack_bowls_two demo_clean 50
 ```
 
-The converter reads point clouds and joint states and produces:
+This creates `policy/DSSP/data/stack_bowls_two-demo_clean-50.zarr`. Skip this step if you already have this processed dataset; preprocessing does not overwrite existing datasets.
 
-```text
-policy/DSSP/data/<task>-<setting>-<demos>.zarr/
-  data/point_cloud
-  data/state
-  data/action
-  meta/episode_ends
-```
-
-The preprocessing script refuses to overwrite an existing output dataset, including symlinks. Missing or invalid input fails before an output dataset is created. Skip this step when reusing a prepared Zarr dataset. Training requires the processed dataset to exist; it does not automatically recollect or preprocess data.
-
-Download or collect the simulator assets and demonstrations separately. Train a model using the commands below to obtain a checkpoint for evaluation.
-
-## Training
+## 3. Train DSSP
 
 ```bash
-# train.sh TASK SETTING DEMOS SEED GPU [HYDRA_OVERRIDES...]
+# Arguments: task, data setting, demonstration count, training seed, GPU index.
 bash policy/DSSP/train.sh stack_bowls_two demo_clean 50 2 0
 ```
 
-The launcher selects [dssp.yaml](src/dssp/config/dssp.yaml) and the trajectory trainer. Defaults include 1,000 epochs, EMA, 49 training demonstrations plus one validation demonstration for this 50-demo example, and disabled online experiment tracking. Set `WANDB_MODE=online` to enable Weights & Biases.
+The launcher uses [dssp.yaml](src/dssp/config/dssp.yaml) to train for 1,000 epochs with EMA. For this 50-demonstration example, 49 demonstrations are used for training and one for validation. Online experiment tracking is disabled by default.
 
-Pass Hydra overrides after the GPU argument. For example, to run a shorter training schedule and save a checkpoint every 100 epochs:
 
-```bash
-bash policy/DSSP/train.sh stack_bowls_two demo_clean 50 2 0 training.num_epochs=100 training.checkpoint_every=100
-```
+Training logs are saved under `policy/DSSP/data/outputs`. Use `train_log.jsonl` to inspect per-epoch losses and `train_metrics.json` to check the completed epoch and optimizer-update counts.
 
-Checkpoints are saved every 500 epochs by default:
-
-```text
-policy/DSSP/checkpoints/<task>-<setting>-<demos>_<seed>_dssp_Mamba1/
-  500.ckpt
-  1000.ckpt
-```
-
-Training outputs, including `train_metrics.json` and per-epoch loss records in `train_log.jsonl`, are written to `policy/DSSP/data/outputs/<task>-dssp-paper_seed<seed>/`. Use `hydra.run.dir=/absolute/output/path` to select another log directory. Checkpoint paths depend on the task, setting, demonstration count, and training seed; changing the log directory does not change the checkpoint directory.
-
-## Resume training
-
-Resume the latest numbered checkpoint for the same task, setting, and seed:
+### Resume an interrupted run
 
 ```bash
 bash policy/DSSP/train.sh stack_bowls_two demo_clean 50 2 0 training.resume=true
 ```
 
-Set `training.resume_path=/absolute/path/500.ckpt` to select a particular checkpoint. `training.num_epochs` remains the total target epoch count, including completed epochs. Keep the dataset, seed, batch/accumulation settings, and total training schedule the same when resuming. A requested resume with no checkpoint fails instead of starting a new run.
+This resumes from the latest saved checkpoint for the same task, data setting, demonstration count, and seed. Keep the original dataset and training configuration; the default target remains 1,000 total epochs.
 
-Trajectory checkpoints include model and optimizer state, training progress, scheduler and EMA progress, and Python/NumPy/PyTorch random states. GPU operations and DataLoader worker state can affect exact numerical replay.
+## 4. Evaluate the trained policy
 
-## Evaluation
+After training completes, run evaluation. By default, the launcher loads `1000.ckpt`, saved at epoch 1,000:
 
 ```bash
-# eval.sh TASK TASK_CONFIG CKPT_SETTING DEMOS SEED GPU [EVAL_OVERRIDES...]
+# Arguments: task, evaluation setting, training data setting, demos, seed, GPU.
 bash policy/DSSP/eval.sh stack_bowls_two demo_clean demo_clean 50 2 0
 ```
 
-`TASK_CONFIG` chooses the evaluation environment; `CKPT_SETTING` identifies the demonstration setting used for training. The default uses `1000.ckpt`, 100 episodes, EMA weights, cached Mamba inference, and video recording.
+Evaluation runs for 100 episodes using EMA weights and cached Mamba inference, and saves a video for each episode. The second argument selects the evaluation environment; the third identifies the data setting used to train the checkpoint.
 
-Useful overrides:
+### Read the results
 
-| Option | Effect |
-|---|---|
-| `--eval_episodes 1` | Evaluate one episode. |
-| `--checkpoint_num 500` | Select the 500-epoch checkpoint. |
-| `--checkpoint_path /absolute/path/1000.ckpt` | Load an explicit checkpoint file. |
-| `--eval_video_log False` | Disable video recording. |
-
-Outputs:
+Each evaluation creates a new output directory:
 
 ```text
-eval_result/<task>/DSSP/<task_config>/<ckpt_setting>/dssp_Mamba1/
-  seed_<seed>/ckpt_<checkpoint_num>/run_<timestamp>/
+eval_result/stack_bowls_two/DSSP/demo_clean/demo_clean/dssp_Mamba1/
+  seed_2/ckpt_1000/run_<timestamp>/
     _metrics.json
     _config.json
     _episodes.jsonl
@@ -127,35 +90,38 @@ eval_result/<task>/DSSP/<task_config>/<ckpt_setting>/dssp_Mamba1/
     ...
 ```
 
-The metrics record the success rate, evaluated/successful episode counts, model class, and performance measurements. `_config.json` records the requested evaluation and environment configuration. `_episodes.jsonl` records each accepted scene seed, success flag, and executed action count, so comparisons can be matched by scene. Video filenames are indexed by episode.
+- **Success rate:** `_metrics.json` contains `success_rate` as a value between 0 and 1, together with `successful_episodes` and `evaluated_episodes`. Multiply `success_rate` by 100 to report a percentage.
+- **Episode outcomes:** `_episodes.jsonl` records scene seeds, success flags, and action counts.
+- **Run settings:** `_config.json` records the evaluation and environment configuration.
+- **Videos:** `episode<N>.mp4` contains the rollout for each evaluated episode.
 
-## Slurm
+For comparisons, use the same task configuration, demonstration count, training schedule, and evaluation episode count, and record the seed. The single-task example above is a starting point; see the main README for the benchmark scope.
 
-Run the same launchers inside a Slurm job with a GPU allocation and the desired environment activated. They preserve the GPU selected by Slurm; the positional GPU argument controls device selection only outside Slurm. Partition names, resource requests, and environment activation depend on the cluster. Training must finish before evaluating its checkpoint.
+## Other tasks and optional settings
 
-## Implementation map
+To run another task, replace `stack_bowls_two` in the collection, preprocessing, training, and evaluation commands. Task names correspond to the implementations in [`envs/`](../../envs/). Keep the data setting, demonstration count, and seed consistent between training and checkpoint selection.
 
-| Component | Implementation |
+Training accepts Hydra overrides after the GPU argument. For example, append `training.checkpoint_every=100` to save every 100 epochs, or `training.resume=true training.resume_path=/absolute/path/500.ckpt` to resume a specific checkpoint. Set `WANDB_MODE=online` before training to enable Weights & Biases.
+
+Evaluation accepts these options after the GPU argument:
+
+| Option | Purpose |
 |---|---|
-| Configuration | [dssp.yaml](src/dssp/config/dssp.yaml) |
-| DSSP policy and trajectory loss | [DSSP](src/dssp/policy/dssp.py) |
-| Shared diffusion policy | [DSSPBase](src/dssp/policy/dssp_base.py) |
-| History encoder | [DSSPHistoryEncoder](src/dssp/model/diffusion/dssp_history_encoder.py) |
-| Action denoiser | [DSSPDenoiser](src/dssp/model/diffusion/dssp_denoiser.py) |
-| Dynamics prediction head | [LatentForwardDynamicsMLP](src/dssp/model/diffusion/latent_forward_dynamics.py) |
-| Point-cloud encoder | [PointCloudObservationEncoder](src/dssp/model/vision/pointnet_extractor.py) |
-| Trajectory dataset | [RobotTrajectoryDataset](src/dssp/dataset/robot_trajectory_dataset.py) |
-| Training workspace | [TrainDSSPTrajectoryWorkspace](src/train_dssp_trajectory.py) |
-| RoboTwin integration | [deploy_policy.py](deploy_policy.py) and [dssp_policy.py](src/dssp_policy.py) |
+| `--checkpoint_num 1000` | Evaluate the checkpoint saved at epoch 1,000 (default). |
+| `--checkpoint_path /absolute/path/model.ckpt` | Load a checkpoint stored elsewhere. |
+| `--eval_episodes 1` | Run a single episode to check the setup. |
+| `--eval_video_log False` | Disable video recording. |
 
-DSSP uses one full-history context token and three recent observation tokens, an eight-step action horizon, six actions per execution chunk, ten DDIM steps, and a cosine dynamics loss weighted by 0.05. The default configuration disables the progress auxiliary loss.
+Use the default 100 evaluation episodes when comparing success rates.
 
-## Tests
+## Configuration and method code
 
-Run the release tests from the repository root:
+The default configuration uses full-history encoding with one history context token and three recent observation tokens, an eight-step action horizon, six executed actions per chunk, ten DDIM denoising steps, and a dynamics loss weight of 0.05.
 
-```bash
-python -m unittest discover -s tests -v
-```
-
-These tests do not require CUDA or simulator assets.
+| Component | Source |
+|---|---|
+| Training and model configuration | [dssp.yaml](src/dssp/config/dssp.yaml) |
+| DSSP policy and training objective | [dssp.py](src/dssp/policy/dssp.py) |
+| History encoder | [dssp_history_encoder.py](src/dssp/model/diffusion/dssp_history_encoder.py) |
+| Action denoiser | [dssp_denoiser.py](src/dssp/model/diffusion/dssp_denoiser.py) |
+| Dynamics prediction head | [latent_forward_dynamics.py](src/dssp/model/diffusion/latent_forward_dynamics.py) |

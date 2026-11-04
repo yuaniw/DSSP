@@ -69,7 +69,7 @@ cd DSSP
 
 ### 1. Environment and simulator assets
 
-Follow the [installation guide](docs/INSTALLATION.md) to set up the environment, required simulator patches, and assets in this checkout.
+Follow the [installation guide](docs/INSTALLATION.md): create the Conda environment, set up RoboTwin and its assets, then install DSSP.
 
 ### 2. Demonstrations
 

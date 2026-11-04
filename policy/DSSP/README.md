@@ -4,7 +4,7 @@ See the [main README](../../README.md) for the paper, method overview, figures, 
 
 ## Environment
 
-Follow the self-contained [installation guide](../../docs/INSTALLATION.md) for the pinned RoboTwin simulator, patches, assets, CUDA extensions, and DSSP environment. All setup commands run from this checkout.
+Follow the [installation guide](../../docs/INSTALLATION.md) to create the Conda environment, set up RoboTwin using its installation and asset scripts, and install DSSP.
 
 The main dependency versions are:
 

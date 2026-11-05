@@ -1,5 +1,7 @@
 <h1 align="center">DSSP: Diffusion State Space Policy<br>with Full-History Encoding</h1>
 
+<p align="center"><strong>Accepted at NeurIPS 2026</strong></p>
+
 <p align="center">
   <a href="https://yuaniw.github.io/DSSP-Page/">Project Page</a> ·
   <a href="https://arxiv.org/abs/2605.14598">Paper</a> ·
@@ -9,7 +11,7 @@
 </p>
 
 <p align="center">
-  Zhiyuan Guan<sup>1</sup>, Jianshu Hu<sup>1</sup>, Han Fang<sup>1</sup>,
+  <a href="mailto:benjaminguan@sjtu.edu.cn">Zhiyuan Guan</a><sup>1</sup>, Jianshu Hu<sup>1</sup>, Han Fang<sup>1</sup>,
   Yunpeng Jiang<sup>1</sup>, Yize Huang<sup>2</sup>, Shujia Li<sup>1</sup>,
   Xiao Li<sup>2</sup>, Yutong Ban<sup>1,*</sup><br>
   <sup>1</sup>Global College, Shanghai Jiao Tong University<br>
@@ -144,4 +146,8 @@ DSSP builds on [RoboTwin](https://github.com/RoboTwin-Platform/RoboTwin), [3D Di
 
 See [LICENSE](LICENSE) and [third-party notices](THIRD_PARTY_NOTICES.md) for the retained upstream license and copyright notices.
 
-For implementation questions, please open an issue in this repository. Paper correspondence: [Yutong Ban](mailto:yban@sjtu.edu.cn).
+## Contact
+
+For questions about the code or method, please open an issue or contact **Zhiyuan Guan** at [benjaminguan@sjtu.edu.cn](mailto:benjaminguan@sjtu.edu.cn).
+
+Corresponding author: [Yutong Ban](mailto:yban@sjtu.edu.cn).
